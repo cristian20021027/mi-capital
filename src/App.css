@@ -327,6 +327,144 @@ input {
   color: var(--gasto);
 }
 
+/* ---------- Carga ---------- */
+.pantalla-carga {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  border: 3px solid var(--linea);
+  border-top-color: var(--tinta);
+  animation: girar 0.7s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Esqueleto: repite la forma del panel mientras llegan los datos */
+.hueso {
+  display: block;
+  background: linear-gradient(
+    100deg,
+    var(--linea) 30%,
+    #dfe6ec 50%,
+    var(--linea) 70%
+  );
+  background-size: 200% 100%;
+  animation: brillo 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@keyframes brillo {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+.hueso--usuario {
+  width: 9rem;
+  height: 1.1rem;
+}
+
+.hueso--enlace {
+  width: 3rem;
+  height: 1.1rem;
+}
+
+.hueso--etiqueta {
+  width: 8rem;
+  height: 0.9rem;
+  margin-bottom: 0.6rem;
+}
+
+.hueso--cifra {
+  width: 60%;
+  max-width: 20rem;
+  height: clamp(2.6rem, 11vw, 4.5rem);
+  margin-bottom: 1.75rem;
+}
+
+.hueso--bloque {
+  height: 3.2rem;
+  border-radius: 8px;
+}
+
+.hueso--tarjeta {
+  height: 14rem;
+  border-radius: 10px;
+}
+
+/* ---------- Avisos (deshacer) ---------- */
+.avisos {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(92vw, 26rem);
+  z-index: 10;
+}
+
+.aviso {
+  background: var(--tinta);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.8rem 0.6rem 0.8rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  box-shadow: 0 8px 20px rgba(20, 33, 61, 0.25);
+  animation: entrar-aviso 0.2s ease-out;
+}
+
+@keyframes entrar-aviso {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.aviso span {
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aviso__boton {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+
+.aviso__boton:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
 /* ---------- Móvil ---------- */
 @media (max-width: 640px) {
   .formularios {

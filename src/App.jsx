@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./Supabasecliente";
 import "./App.css";
+
+const SEGUNDOS_PARA_DESHACER = 5;
 
 const formatoPesos = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -208,6 +210,15 @@ function Panel({ user }) {
   const [movimientos, setMovimientos] = useState([]);
   const [editandoInicial, setEditandoInicial] = useState(false);
   const [inicialTexto, setInicialTexto] = useState("");
+  const [pendientes, setPendientes] = useState({}); // id -> movimiento en espera de borrarse
+  const temporizadores = useRef({});
+
+  // Si sales del panel con un borrado a medias, se confirma igual en la nube
+  useEffect(() => {
+    return () => {
+      Object.values(temporizadores.current).forEach(clearTimeout);
+    };
+  }, []);
 
   // Carga los datos del usuario (las reglas RLS ya filtran por usuario)
   useEffect(() => {
@@ -278,7 +289,25 @@ function Panel({ user }) {
     return true;
   }
 
-  async function eliminar(id) {
+  function eliminar(id) {
+    const movimiento = movimientos.find((m) => m.id === id);
+    if (!movimiento || pendientes[id]) return;
+
+    const temporizador = setTimeout(
+      () => confirmarEliminar(id),
+      SEGUNDOS_PARA_DESHACER * 1000
+    );
+    temporizadores.current[id] = temporizador;
+    setPendientes((p) => ({ ...p, [id]: movimiento }));
+  }
+
+  async function confirmarEliminar(id) {
+    delete temporizadores.current[id];
+    setPendientes((p) => {
+      const { [id]: _omitido, ...resto } = p;
+      return resto;
+    });
+
     const { error: fallo } = await supabase
       .from("movimientos")
       .delete()
@@ -291,12 +320,37 @@ function Panel({ user }) {
     setMovimientos((lista) => lista.filter((m) => m.id !== id));
   }
 
+  function deshacerEliminar(id) {
+    clearTimeout(temporizadores.current[id]);
+    delete temporizadores.current[id];
+    setPendientes((p) => {
+      const { [id]: _omitido, ...resto } = p;
+      return resto;
+    });
+  }
+
   const salir = () => supabase.auth.signOut();
 
   if (cargando) {
     return (
-      <main className="acceso">
-        <p className="vacio">Cargando tus datos…</p>
+      <main className="panel">
+        <header className="panel__barra">
+          <span className="hueso hueso--usuario" />
+          <span className="hueso hueso--enlace" />
+        </header>
+        <section className="resumen">
+          <span className="hueso hueso--etiqueta" />
+          <span className="hueso hueso--cifra" />
+          <div className="cuenta">
+            <div className="hueso hueso--bloque" />
+            <div className="hueso hueso--bloque" />
+            <div className="hueso hueso--bloque" />
+          </div>
+        </section>
+        <div className="formularios">
+          <span className="hueso hueso--tarjeta" />
+          <span className="hueso hueso--tarjeta" />
+        </div>
       </main>
     );
   }
@@ -416,13 +470,15 @@ function Panel({ user }) {
 
       <section className="historial" aria-label="Movimientos">
         <h2 className="historial__titulo">Movimientos</h2>
-        {movimientos.length === 0 ? (
+        {movimientos.filter((m) => !pendientes[m.id]).length === 0 ? (
           <p className="vacio">
             Aún no hay movimientos. Registra tu primera ganancia o gasto.
           </p>
         ) : (
           <ul>
-            {movimientos.map((m) => (
+            {movimientos
+              .filter((m) => !pendientes[m.id])
+              .map((m) => (
               <li key={m.id} className={`mov mov--${m.tipo}`}>
                 <div>
                   <p className="mov__desc">{m.descripcion}</p>
@@ -444,10 +500,23 @@ function Panel({ user }) {
                   Eliminar
                 </button>
               </li>
-            ))}
+              ))}
           </ul>
         )}
       </section>
+
+      {Object.entries(pendientes).length > 0 && (
+        <div className="avisos" role="status">
+          {Object.entries(pendientes).map(([id, movimiento]) => (
+            <div key={id} className="aviso">
+              <span>“{movimiento.descripcion}” eliminado</span>
+              <button className="aviso__boton" onClick={() => deshacerEliminar(id)}>
+                Deshacer
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
@@ -472,8 +541,8 @@ export default function App() {
 
   if (session === undefined) {
     return (
-      <main className="acceso">
-        <p className="vacio">Cargando…</p>
+      <main className="pantalla-carga" aria-label="Cargando">
+        <span className="spinner" />
       </main>
     );
   }
