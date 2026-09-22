@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "./SupabaseCliente";
+import { supabase } from "./Supabasecliente";
 import "./App.css";
 
 const SEGUNDOS_PARA_DESHACER = 5;
