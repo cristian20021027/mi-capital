@@ -1,8 +1,71 @@
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "./Supabasecliente";
+import { supabase } from "./SupabaseCliente";
 import "./App.css";
 
 const SEGUNDOS_PARA_DESHACER = 5;
+const TEMA_KEY = "capital.tema";
+
+const CATEGORIAS = {
+  ganancia: ["Venta", "Pago de cliente", "Préstamo recibido", "Otro"],
+  gasto: [
+    "Mercado / insumos",
+    "Arriendo",
+    "Servicios",
+    "Transporte",
+    "Nómina",
+    "Otro",
+  ],
+};
+
+function useTema() {
+  const [tema, setTema] = useState(() => {
+    try {
+      return localStorage.getItem(TEMA_KEY) || "sistema";
+    } catch {
+      return "sistema";
+    }
+  });
+
+  useEffect(() => {
+    const raiz = document.documentElement;
+    if (tema === "sistema") {
+      raiz.removeAttribute("data-theme");
+    } else {
+      raiz.setAttribute("data-theme", tema === "oscuro" ? "dark" : "light");
+    }
+    try {
+      localStorage.setItem(TEMA_KEY, tema);
+    } catch {
+      /* sin preferencia guardada */
+    }
+  }, [tema]);
+
+  const prefiereOscuro =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  const esOscuroAhora =
+    tema === "oscuro" || (tema === "sistema" && prefiereOscuro);
+
+  function alternar() {
+    setTema(esOscuroAhora ? "claro" : "oscuro");
+  }
+
+  return { esOscuroAhora, alternar };
+}
+
+function BotonTema() {
+  const { esOscuroAhora, alternar } = useTema();
+  return (
+    <button
+      className="boton-tema"
+      onClick={alternar}
+      aria-label={esOscuroAhora ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      title={esOscuroAhora ? "Modo claro" : "Modo oscuro"}
+    >
+      {esOscuroAhora ? "☀️" : "🌙"}
+    </button>
+  );
+}
 
 const formatoPesos = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -146,8 +209,10 @@ function Acceso() {
 /* ---------- Formulario de ganancia / gasto ---------- */
 function FormMovimiento({ tipo, onAgregar }) {
   const esGasto = tipo === "gasto";
+  const categorias = CATEGORIAS[tipo];
   const [descripcion, setDescripcion] = useState("");
   const [monto, setMonto] = useState("");
+  const [categoria, setCategoria] = useState(categorias[0]);
   const [enviando, setEnviando] = useState(false);
 
   async function enviar(e) {
@@ -158,6 +223,7 @@ function FormMovimiento({ tipo, onAgregar }) {
     setEnviando(true);
     const guardado = await onAgregar({
       tipo,
+      categoria,
       descripcion: descripcion.trim() || (esGasto ? "Gasto" : "Ganancia"),
       monto: valor,
     });
@@ -183,6 +249,16 @@ function FormMovimiento({ tipo, onAgregar }) {
         />
       </label>
       <label className="campo">
+        <span>Categoría</span>
+        <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+          {categorias.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="campo">
         <span>Monto</span>
         <input
           type="number"
@@ -202,6 +278,117 @@ function FormMovimiento({ tipo, onAgregar }) {
   );
 }
 
+/* ---------- Gráfico de capital ---------- */
+function GraficoCapital({ capitalInicial, movimientos }) {
+  const ordenados = [...movimientos].sort(
+    (a, b) => new Date(a.created_at) - new Date(b.created_at)
+  );
+
+  let acumulado = capitalInicial;
+  const puntos = [{ fecha: null, capital: acumulado }];
+  for (const m of ordenados) {
+    acumulado += m.tipo === "ganancia" ? m.monto : -m.monto;
+    puntos.push({ fecha: m.created_at, capital: acumulado });
+  }
+
+  if (puntos.length < 2) {
+    return (
+      <p className="vacio">
+        Registra al menos un movimiento para ver cómo cambia tu capital en el
+        tiempo.
+      </p>
+    );
+  }
+
+  const ANCHO = 600;
+  const ALTO = 220;
+  const MARGEN = 12;
+
+  const valores = puntos.map((p) => p.capital);
+  const max = Math.max(...valores);
+  const min = Math.min(...valores);
+  const rango = max - min || 1;
+
+  const coords = puntos.map((p, i) => {
+    const x = (i / (puntos.length - 1)) * (ANCHO - MARGEN * 2) + MARGEN;
+    const y =
+      ALTO -
+      MARGEN -
+      ((p.capital - min) / rango) * (ALTO - MARGEN * 2);
+    return { x, y, capital: p.capital };
+  });
+
+  const linea = coords.map((c) => `${c.x},${c.y}`).join(" ");
+  const area = `${MARGEN},${ALTO - MARGEN} ${linea} ${ANCHO - MARGEN},${ALTO - MARGEN}`;
+
+  const colorLinea = acumulado < 0 ? "var(--gasto)" : "var(--ganancia)";
+  const primero = puntos[0];
+  const ultimo = puntos[puntos.length - 1];
+
+  return (
+    <div className="grafico">
+      <svg
+        className="grafico__svg"
+        viewBox={`0 0 ${ANCHO} ${ALTO}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Capital acumulado, de ${pesos(primero.capital)} a ${pesos(ultimo.capital)}`}
+      >
+        <polygon points={area} fill={colorLinea} opacity="0.12" />
+        <polyline
+          points={linea}
+          fill="none"
+          stroke={colorLinea}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {coords.map((c, i) => (
+          <circle key={i} cx={c.x} cy={c.y} r={i === coords.length - 1 ? 4 : 0} fill={colorLinea} />
+        ))}
+      </svg>
+      <div className="grafico__pie">
+        <span>{pesos(min)}</span>
+        <span>{pesos(max)}</span>
+      </div>
+      <div className="grafico__fechas">
+        <span>Capital inicial</span>
+        <span>
+          {new Date(ultimo.fecha).toLocaleDateString("es-CO", {
+            dateStyle: "medium",
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Resumen por categoría ---------- */
+function PorCategoria({ titulo, datos, color }) {
+  if (datos.length === 0) return null;
+  const max = Math.max(...datos.map((d) => d.total));
+
+  return (
+    <div className="categorias">
+      <p className="categorias__titulo">{titulo}</p>
+      <ul className="categorias__lista">
+        {datos.map((d) => (
+          <li key={d.categoria} className="categorias__fila">
+            <span className="categorias__nombre">{d.categoria}</span>
+            <span className="categorias__barra-fondo">
+              <span
+                className="categorias__barra"
+                style={{ width: `${(d.total / max) * 100}%`, background: color }}
+              />
+            </span>
+            <span className="categorias__monto">{pesos(d.total)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /* ---------- Panel principal ---------- */
 function Panel({ user }) {
   const [cargando, setCargando] = useState(true);
@@ -212,6 +399,9 @@ function Panel({ user }) {
   const [inicialTexto, setInicialTexto] = useState("");
   const [pendientes, setPendientes] = useState({}); // id -> movimiento en espera de borrarse
   const temporizadores = useRef({});
+  const [filtroTipo, setFiltroTipo] = useState("todos"); // todos | ganancia | gasto
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroMes, setFiltroMes] = useState("todos"); // "todos" o "YYYY-MM"
 
   // Si sales del panel con un borrado a medias, se confirma igual en la nube
   useEffect(() => {
@@ -255,6 +445,47 @@ function Panel({ user }) {
     .filter((m) => m.tipo === "gasto")
     .reduce((suma, m) => suma + m.monto, 0);
   const capitalActual = (capitalInicial ?? 0) + ganancias - gastos;
+
+  // El capital y los totales siempre usan TODOS los movimientos; solo la
+  // lista de abajo se filtra, para que filtrar nunca altere las cifras.
+  const meses = [
+    ...new Set(movimientos.map((m) => m.created_at.slice(0, 7))),
+  ].sort((a, b) => b.localeCompare(a));
+
+  const textoBusqueda = busqueda.trim().toLowerCase();
+  const movimientosVisibles = movimientos
+    .filter((m) => !pendientes[m.id])
+    .filter((m) => filtroTipo === "todos" || m.tipo === filtroTipo)
+    .filter(
+      (m) => filtroMes === "todos" || m.created_at.slice(0, 7) === filtroMes
+    )
+    .filter(
+      (m) => !textoBusqueda || m.descripcion.toLowerCase().includes(textoBusqueda)
+    );
+
+  function porCategoria(tipoMovimiento) {
+    const totales = {};
+    for (const m of movimientos) {
+      if (m.tipo !== tipoMovimiento) continue;
+      const clave = m.categoria || "Otro";
+      totales[clave] = (totales[clave] || 0) + m.monto;
+    }
+    return Object.entries(totales)
+      .map(([categoria, total]) => ({ categoria, total }))
+      .sort((a, b) => b.total - a.total);
+  }
+
+  const categoriasGasto = porCategoria("gasto");
+  const categoriasGanancia = porCategoria("ganancia");
+
+  function formatoMes(clave) {
+    const [anio, mes] = clave.split("-");
+    const nombre = new Date(Number(anio), Number(mes) - 1, 1).toLocaleDateString(
+      "es-CO",
+      { month: "long", year: "numeric" }
+    );
+    return nombre.charAt(0).toUpperCase() + nombre.slice(1);
+  }
 
   async function fijarInicial(e) {
     e.preventDefault();
@@ -461,6 +692,21 @@ function Panel({ user }) {
             <dd>− {pesos(gastos)}</dd>
           </div>
         </dl>
+
+        <GraficoCapital capitalInicial={capitalInicial} movimientos={movimientos} />
+
+        <div className="categorias-doble">
+          <PorCategoria
+            titulo="Gastos por categoría"
+            datos={categoriasGasto}
+            color="var(--gasto)"
+          />
+          <PorCategoria
+            titulo="Ganancias por categoría"
+            datos={categoriasGanancia}
+            color="var(--ganancia)"
+          />
+        </div>
       </section>
 
       <div className="formularios">
@@ -470,19 +716,70 @@ function Panel({ user }) {
 
       <section className="historial" aria-label="Movimientos">
         <h2 className="historial__titulo">Movimientos</h2>
-        {movimientos.filter((m) => !pendientes[m.id]).length === 0 ? (
+
+        <div className="filtros">
+          <div className="filtros__tipos" role="group" aria-label="Filtrar por tipo">
+            <button
+              className={`chip ${filtroTipo === "todos" ? "chip--activo" : ""}`}
+              onClick={() => setFiltroTipo("todos")}
+            >
+              Todos
+            </button>
+            <button
+              className={`chip chip--ganancia ${filtroTipo === "ganancia" ? "chip--activo" : ""}`}
+              onClick={() => setFiltroTipo("ganancia")}
+            >
+              Ganancias
+            </button>
+            <button
+              className={`chip chip--gasto ${filtroTipo === "gasto" ? "chip--activo" : ""}`}
+              onClick={() => setFiltroTipo("gasto")}
+            >
+              Gastos
+            </button>
+          </div>
+
+          <div className="filtros__campos">
+            <input
+              className="filtros__buscar"
+              type="search"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por descripción"
+              aria-label="Buscar por descripción"
+            />
+            {meses.length > 0 && (
+              <select
+                className="filtros__mes"
+                value={filtroMes}
+                onChange={(e) => setFiltroMes(e.target.value)}
+                aria-label="Filtrar por mes"
+              >
+                <option value="todos">Todos los meses</option>
+                {meses.map((clave) => (
+                  <option key={clave} value={clave}>
+                    {formatoMes(clave)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+
+        {movimientosVisibles.length === 0 ? (
           <p className="vacio">
-            Aún no hay movimientos. Registra tu primera ganancia o gasto.
+            {movimientos.length === 0
+              ? "Aún no hay movimientos. Registra tu primera ganancia o gasto."
+              : "Ningún movimiento coincide con el filtro."}
           </p>
         ) : (
           <ul>
-            {movimientos
-              .filter((m) => !pendientes[m.id])
-              .map((m) => (
+            {movimientosVisibles.map((m) => (
               <li key={m.id} className={`mov mov--${m.tipo}`}>
                 <div>
                   <p className="mov__desc">{m.descripcion}</p>
                   <p className="mov__fecha">
+                    {m.categoria && <span className="mov__categoria">{m.categoria}</span>}
                     {new Date(m.created_at).toLocaleString("es-CO", {
                       dateStyle: "medium",
                       timeStyle: "short",
@@ -541,11 +838,19 @@ export default function App() {
 
   if (session === undefined) {
     return (
-      <main className="pantalla-carga" aria-label="Cargando">
-        <span className="spinner" />
-      </main>
+      <>
+        <BotonTema />
+        <main className="pantalla-carga" aria-label="Cargando">
+          <span className="spinner" />
+        </main>
+      </>
     );
   }
 
-  return session ? <Panel key={session.user.id} user={session.user} /> : <Acceso />;
+  return (
+    <>
+      <BotonTema />
+      {session ? <Panel key={session.user.id} user={session.user} /> : <Acceso />}
+    </>
+  );
 }
